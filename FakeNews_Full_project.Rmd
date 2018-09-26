@@ -1,0 +1,803 @@
+---
+title: "Fake News Data Analysis Project"
+author: "Alaleh Ahmadian"
+date: "April 16, 2018"
+output:
+  prettydoc::html_pretty:
+    theme: tactile
+    highlight: github
+---
+
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+## Introduction
+
+At the beginning we go over the Data and get a sense of what we can do and infer from it
+Then we go through some elementary ideas and implement them. 
+The theories and main assumptions and analysis will be said in the proccess. 
+In the end, we will mention ideas and theories that we wanted to do but these attempts were unsuccesful.
+
+## Packages
+
+packages below are for tidying data, removing outliers, plotting, graphing and doing statistical analysis.
+
+```{r , message=FALSE, warning=FALSE}
+
+library(readr)
+library(dplyr)
+library(readxl)
+library(ggplot2)
+library(dplyr)
+library(stringi)
+library(stringr)
+library(lubridate)
+library(gutenbergr)
+library(highcharter)
+library(tidyr)
+library(tidytext)
+library(boot)
+library(magrittr)
+library(knitr)
+library(car)
+library(corrplot)
+library(RColorBrewer)
+library(highcharter)
+library(hexbin)
+library(ggplot2)
+library(syuzhet)
+library(party)
+library(randomForest)
+library(gridExtra)
+library(reshape2)
+library(Hmisc)
+library(GGally)
+library(corpcor)
+library(mctest)
+library(wordcloud)
+library(flextable)
+library(kableExtra)
+library(rpart)
+library(rpart.plot)
+library(tidyverse)
+library(tidytext)
+library(topicmodels) # for LDA topic modelling 
+library(tm) 
+library(SnowballC) # for stemming
+library(googlesheets)
+library(lubridate)
+library(tidyverse)
+library(kernlab)
+library(NLP)
+library(gtrendsR)
+library(slam)
+library(e1071)
+
+```
+
+
+## Data
+
+```{r , message=FALSE, warning=FALSE}
+
+fakes1 <- read.csv("C:/Users/Alaleh/Desktop/fake.csv", stringsAsFactors = F)
+fakes2 <- read.csv("C:/Users/Alaleh/Desktop/facebook-facts.csv", stringsAsFactors = F)
+fakes3 <- read.csv("C:/Users/Alaleh/Desktop/fake_or_real_news.csv", stringsAsFactors = F)  #Data from George McIntire's github page
+
+```
+
+
+## Functions
+
+In natural language processing, latent Dirichlet allocation (LDA) is a generative statistical model that allows sets of observations to be explained by unobserved groups that explain why some parts of the data are similar. For example, if observations are words collected into documents, it posits that each document is a mixture of a small number of topics and that each word's creation is attributable to one of the document's topics. LDA is an example of a topic model
+Here's a function to get & plot the most informative terms by a specificed number of topics, using LDA
+
+the function arguments are a dataframe column to work on, whether or not the function returns a plot and number of topics. then we create a corpus (type of object expected by tm) and document term matrix to get the count of words/document. After that remove any empty rows in our document term matrix (if there are any we'll get an error when we try to run our LDA)
+
+Next we can preform LDA & get the words/topic in a tidy text format
+
+
+```{r , message=FALSE, warning=FALSE}
+
+top_terms_by_topic_LDA <- function(input_text, plot = T, number_of_topics = 4) 
+{
+    Corpus <- Corpus(VectorSource(input_text)) 
+    DTM <- DocumentTermMatrix(Corpus)
+    unique_indexes <- unique(DTM$i)
+    DTM <- DTM[unique_indexes,]
+  
+    lda <- LDA(DTM, k = number_of_topics, control = list(seed = 2222))
+    topics <- tidy(lda, matrix = "beta")
+
+    top_terms <- topics  %>% group_by(topic) %>% 
+      top_n(10, beta) %>% ungroup() %>% arrange(topic, -beta)
+
+    if(plot == T){
+        top_terms %>% 
+          mutate(term = reorder(term, beta)) %>%
+          ggplot(aes(term, beta, fill = factor(topic))) + 
+          geom_col(show.legend = FALSE) + facet_wrap(~ topic, scales = "free") +
+          labs(x = NULL, y = "Beta") + coord_flip() 
+    }else{ 
+        return(top_terms)
+    }
+}
+
+```
+
+# Code Explanation
+
+A vector source interprets each element of the vector x as a document and Corpora are collections of documents containing (natural language) text. and "Corpus" is a collection of text documents. 
+In packages which employ the infrastructure provided by package tm.
+A common approach in text mining is to create a term-document matrix from a corpus. In the tm package the classes TermDocumentMatrix and DocumentTermMatrix (depending on whether you want terms as rows and documents as columns, or vice versa) employ sparse matrices for corpora
+LDA (Linear Discriminant Analysis)  tries hard to detect if the within-class covariance matrix is singular. If any variable has within-group variance less than tol^2 it will stop and report the variable as constant. This could result from poor scaling of the problem, but is more likely to result from constant variables.
+tidy function turns A Model Object Into A Tidy Tibble
+
+
+
+# TF-IDF
+
+In information retrieval, tf-idf or TFIDF, short for term frequency-inverse document frequency, is a numerical statistic that is intended to reflect how important a word is to a document in a collection or corpus.
+
+It is often used as a weighting factor in searches of information retrieval, text mining, and user modeling. The tf-idf value increases proportionally to the number of times a word appears in the document and is offset by the frequency of the word in the corpus, which helps to adjust for the fact that some words appear more frequently in general. Tf-idf is one of the most popular term-weighting schemes today; 83% of text-based recommender systems in digital libraries use tf-idf.
+
+Variations of the tf-idf weighting scheme are often used by search engines as a central tool in scoring and ranking a document's relevance given a user query. tf-idf can be successfully used for stop-words filtering in various subject fields, including text summarization and classification.
+
+One of the simplest ranking functions is computed by summing the tf-idf for each query term; many more sophisticated ranking functions are variants of this simple model.
+
+# Term frequency
+
+Suppose we have a set of English text documents and wish to rank which document is most relevant to the query, "the brown cow". A simple way to start out is by eliminating documents that do not contain all three words "the", "brown", and "cow", but this still leaves many documents. To further distinguish them, we might count the number of times each term occurs in each document; the number of times a term occurs in a document is called its term frequency. However, in the case where the length of documents varies greatly, adjustments are often made (see definition below). The first form of term weighting is due to Hans Peter Luhn (1957) which may be summarized as:
+
+The weight of a term that occurs in a document is simply proportional to the term frequency.
+
+# Inverse document frequency
+
+Because the term "the" is so common, term frequency will tend to incorrectly emphasize documents which happen to use the word "the" more frequently, without giving enough weight to the more meaningful terms "brown" and "cow". The term "the" is not a good keyword to distinguish relevant and non-relevant documents and terms, unlike the less-common words "brown" and "cow". Hence an inverse document frequency factor is incorporated which diminishes the weight of terms that occur very frequently in the document set and increases the weight of terms that occur rarely.
+
+Karen Spärck Jones (1972) conceived a statistical interpretation of term specificity called Inverse Document Frequency (IDF), which became a cornerstone of term weighting:
+
+The specificity of a term can be quantified as an inverse function of the number of documents in which it occurs
+
+This function takes in a dataframe and the name of the columns with the document texts and the topic labels. If plot is set to false it will return the tf-idf output rather than a plot.
+
+
+```{r , message=FALSE, warning=FALSE}
+
+top_terms_by_topic_tfidf <- function(text_df=fakes1, text_column, group_column, plot=T){
+    
+  group_column <- enquo(group_column)
+  text_column <- enquo(text_column)
+    
+  words <- text_df %>% unnest_tokens(word, !!text_column) %>% count(!!group_column, word) %>% ungroup()
+    
+  total_words <- words %>% group_by(!!group_column) %>% summarise(total = sum(n))
+  words <- left_join(words, total_words)
+    
+  tf_idf <- words %>% bind_tf_idf(word, !!group_column, n) %>%
+    select(-total) %>% arrange(desc(tf_idf)) %>% mutate(word = factor(word, levels = rev(unique(word))))
+    
+    if(plot == T){
+      group_name <- quo_name(group_column)
+      tf_idf %>% group_by(!!group_column) %>% top_n(10) %>% ungroup %>%
+        ggplot(aes(word, tf_idf, fill = as.factor(group_name))) + geom_col(show.legend = FALSE) + 
+        labs(x = NULL, y = "tf-idf") + facet_wrap(reformulate(group_name), scales = "free") + 
+        coord_flip()
+    }
+    else{
+        return(tf_idf)
+    }
+}
+
+```
+
+# Code Explanation
+
+enquo() takes a symbol referring to a function argument, quotes the R code that was supplied to this argument, captures the environment where the function was called (and thus where the R code was typed), and bundles them in a quosure. Quosures are quoted expressions that keep track of an environment (just like closurefunctions). They are implemented as a subclass of one-sided formulas. They are an essential piece of the tidy evaluation framework.
+
+
+
+
+Function replaces all columns which have the value of NA with some prechosen string that we decide. (This is good for factoring and getting rid of NA values)
+
+```{r , message=FALSE, warning=FALSE}
+
+na.replace <- function(x, repstring){
+  x[is.na(x)] <- repstring
+  x 
+}
+
+```
+
+ 
+## Check most used words
+
+Since the data is too big we start with a subset, we set a seed to always get the same subset
+
+```{r , message=FALSE, warning=FALSE}
+
+set.seed(2222) 
+
+top_terms_by_topic_LDA(fakes1[sample(nrow(fakes1), 2000), ], number_of_topics = 4)
+
+newsCorpus <- Corpus(VectorSource(fakes1$text))
+newsDTM <- DocumentTermMatrix(newsCorpus)
+
+newsDTM_tidy <- tidy(newsDTM)
+newsDTM_cleaned <- newsDTM_tidy %>% anti_join(stop_words, by = c("term" = "word")) 
+
+cleaned_documents <- newsDTM_cleaned %>% group_by(document) %>% 
+  mutate(terms = toString(rep(term, count))) %>% select(document, terms) %>% unique()
+
+head(cleaned_documents)
+
+newsDTM_cleaned <- newsDTM_cleaned %>% mutate(stem = wordStem(term))
+
+cleaned_documents <- newsDTM_cleaned %>% group_by(document) %>% 
+    mutate(terms = toString(rep(stem, count))) %>%
+    select(document, terms) %>% unique()
+
+fakes1ch = fakes1
+fakes1ch$language = as.character(fakes1ch$language)
+fakes1ch$type = as.character(fakes1ch$type)
+sub_samp= sample(cleaned_documents$terms,200)
+top_terms_by_topic_LDA(data.frame(sub_samp))
+
+top_terms_by_topic_tfidf(text_df = fakes1ch[sample(nrow(fakes1ch), 2000), ], text_column = text,group_column = type, plot = T) 
+top_terms_by_topic_tfidf(text_df = fakes1ch[sample(nrow(fakes1ch), 2000), ], text_column = text,group_column = language, plot = T) 
+
+
+```
+
+
+
+## Checking interactions with news
+
+Do fake news get more like, shares or comments?
+
+```{r , message=FALSE, warning=FALSE}
+
+fakes2 %>% select(Page, Post.Type, Rating, share_count, reaction_count, comment_count) -> fakes2_data
+
+fakes2_data[is.na(fakes2_data)] = 0
+
+fakes2_data %>% group_by(Rating) %>% summarise(sharesum = sum(share_count), reactsum = sum(reaction_count), comsum = sum(comment_count)) %>% filter(Rating != "no factual content") -> summarisedFake2
+
+hchart(summarisedFake2, "pie", hcaes(x = sharesum, label=Rating,y = sharesum, color=c("blue","green","yellow"))) %>%
+hc_plotOptions(pie =list(dataLabels = list(enabled = TRUE,format="{point.label}:{point.percentage:.2f} %"))) %>% hc_add_theme(hc_theme_google()) %>%
+  hc_title(text = "Shared on facebook", margin = 20, style = list(color = "#144746", useHTML = TRUE)) 
+
+
+hchart(summarisedFake2, "pie", hcaes(x = reactsum, label=Rating,y = reactsum, color=c("blue","green","yellow"))) %>%
+hc_plotOptions(pie =list(dataLabels = list(enabled = TRUE,format="{point.label}:{point.percentage:.2f} %"))) %>% hc_add_theme(hc_theme_google()) %>%
+  hc_title(text = "Reacted to on facebook", margin = 20, style = list(color = "#144746", useHTML = TRUE)) 
+
+
+hchart(summarisedFake2, "pie", hcaes(x = comsum, label=Rating,y = comsum, color=c("blue","green","yellow"))) %>%
+hc_plotOptions(pie =list(dataLabels = list(enabled = TRUE,format="{point.label}:{point.percentage:.2f} %"))) %>% hc_add_theme(hc_theme_google()) %>%
+  hc_title(text = "Commented on facebook", margin = 20, style = list(color = "#144746", useHTML = TRUE)) 
+
+```
+
+We see that people tend to share , Comment on and react to mostly true news more and false news don't have much interactions. (this data is for a short period of time on facebook and we can't make a general statement)
+
+
+# A timeline of word sentiment in news
+
+We first create two vectors to find words in order, for Fake and Real news
+
+
+```{r , message=FALSE, warning=FALSE}
+
+Fake_words3 = fakes3 %>% filter(label=="FAKE") %>% select(text) %>% unnest_tokens(word, text) %>% anti_join(stop_words)
+
+Real_words3 = fakes3 %>% filter(label=="REAL") %>% select(text) %>% unnest_tokens(word, text) %>% anti_join(stop_words)
+
+```
+
+
+Now we do a sentiment analysis on all the words and get a grip on how positive or negative the words in each group are.
+
+
+```{r , message=FALSE, warning=FALSE}
+
+Fake_to_plot <- Fake_words3 %>% inner_join(get_sentiments("bing")) %>%
+  count( index = row_number() %/% 60, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative) 
+
+ggplot(data = Fake_to_plot, aes(x = index, y = sentiment)) +
+        geom_bar(aes(fill = sentiment>0),stat = 'identity', position = position_dodge()) + 
+        ylab("Sentiment") + 
+        ggtitle("Positive and Negative Sentiment in Fake news by time") +
+        scale_color_manual(values = c("orange", "blue")) +
+        scale_fill_manual(values = c("red", "blue"),guide = FALSE, breaks = c(TRUE, FALSE))
+
+
+Real_to_plot <- Real_words3 %>% inner_join(get_sentiments("bing")) %>%
+  count( index = row_number() %/% 60, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative) 
+
+ggplot(data = Real_to_plot, aes(x = index, y = sentiment)) +
+        geom_bar(aes(fill = sentiment>0),stat = 'identity', position = position_dodge()) + 
+        ylab("Sentiment") + 
+        ggtitle("Positive and Negative Sentiment in Real news by time") +
+        scale_color_manual(values = c("orange", "blue")) +
+        scale_fill_manual(values = c("red", "blue"),guide = FALSE, breaks = c(TRUE, FALSE))
+
+
+```
+
+An interesting deduction is there are more positive words and paragraphs in Real new than fake.
+
+
+## Find most common bigrams in Fake and Real news
+
+Here we calculate the most common bigrams in fake news
+
+```{r , message=FALSE, warning=FALSE}
+
+Fakenews_bis = fakes3 %>% filter(label=="FAKE") %>% select(text) 
+Fakenews_bis = Fakenews_bis %>% unnest_tokens(bigram, text, token = "ngrams", n = 2)
+Fakenews_separated <- Fakenews_bis %>% separate(bigram, c("word1", "word2"), sep=" ")
+Fakenews_bigram_filtered <- Fakenews_separated %>% filter(!word1 %in% stop_words$word) %>% filter(!word2 %in% stop_words$word)
+Fakenews_bigram_counts <- Fakenews_bigram_filtered %>% count(word1, word2, sort = TRUE)
+Fakenews_bigrams_united <- Fakenews_bigram_filtered %>% unite(bigram, word1, word2, sep = " ")
+Fakenews_bigrams <- Fakenews_bigrams_united %>% count(bigram, sort=T) %>% filter(n>3)
+
+hchart(head(Fakenews_bigrams,30) ,type = "column", title="Most common bigrams in fake news", hcaes(x = bigram, y=n))  %>% hc_add_theme(hc_theme_google())
+
+```
+
+
+Here we calculate the most common bigrams in real news
+
+```{r , message=FALSE, warning=FALSE}
+
+Realnews_bis = fakes3 %>% filter(label=="REAL") %>% select(text) 
+Realnews_bis = Realnews_bis %>% unnest_tokens(bigram, text, token = "ngrams", n = 2)
+Realnews_separated <- Realnews_bis %>% separate(bigram, c("word1", "word2"), sep=" ")
+Realnews_bigram_filtered <- Realnews_separated %>% filter(!word1 %in% stop_words$word) %>% filter(!word2 %in% stop_words$word)
+Realnews_bigram_counts <- Realnews_bigram_filtered %>% count(word1, word2, sort = TRUE)
+Realnews_bigrams_united <- Realnews_bigram_filtered %>% unite(bigram, word1, word2, sep = " ")
+Realnews_bigrams <- Realnews_bigrams_united %>% count(bigram, sort=T) %>% filter(n>3)
+
+hchart(head(Realnews_bigrams,30) ,type = "column", title="Most common bigrams in real news", hcaes(x = bigram, y=n))  %>% hc_add_theme(hc_theme_google())
+
+```
+
+
+There's many mentions of Obama's name in real news, also the name Donald Trump has appeared more in real news than fake which is vice versa for fake news
+
+
+# Clean the Data
+
+Reading the raw csv, the data was getting tangled together (the text column was being shown on other columns) so we create a clean data frame for the news
+
+```{r , message=FALSE, warning=FALSE}
+
+fakes = fakes1[-1]
+row_indexes <- sample(1:nrow(fakes), nrow(fakes), replace = F)
+fakes <- slice(fakes, row_indexes)
+
+names(fakes)
+
+```
+
+As you can see we have 19 different columns for each article.
+Next we replace NA values with strings
+For domain rank, we replace NAs with 0 (we will make this factor, so NA is a new class)
+
+```{r , message=FALSE, warning=FALSE}
+
+clean_fakes <- fakes %>% 
+  mutate(title = na.replace(title, "NoTitle")) %>%
+  mutate(thread_title = na.replace(thread_title, "NoThread")) %>%
+  mutate(text = na.replace(text, "NoText")) %>%
+  mutate(author = na.replace(author, "NoAuthor")) %>%
+  mutate(country = na.replace(country, "NoCountry")) %>%
+  mutate(main_img_url = na.replace(main_img_url, "NoURL")) %>%
+  mutate(domain_rank = na.replace(domain_rank, 0)) %>% 
+  mutate(domain_rank = as.factor(domain_rank))
+
+```
+
+
+Our first assumption is that words with all capital letters are suspicious and aren't usually in a legit news article so we start by counting them.
+
+```{r , message=FALSE, warning=FALSE}
+
+clean_fakes <- clean_fakes %>% 
+  mutate(caps_title = str_count(title, "\\b[A-Z]{2,}\\b")) %>%
+  mutate(caps_thread = str_count(thread_title, "\\b[A-Z]{2,}\\b")) %>%
+  mutate(caps_text = str_count(text, "\\b[A-Z]{2,}\\b"))
+
+```
+
+
+Next we compute the length of title, thread_title and text and also the number of exclamation points to see if there's a correlation between the length of articles or header and number of exclamation points and its being fake.
+
+```{r , message=FALSE, warning=FALSE}
+
+clean_fakes <- clean_fakes %>%
+  mutate(title_len = str_count(title)) %>%
+  mutate(thread_len = str_count(thread_title)) %>%
+  mutate(text_len = str_count(text)) %>%
+  mutate(excl_title = str_count(title, "!")) %>%
+  mutate(excl_thread = str_count(thread_title, "!")) %>%
+  mutate(excl_text = str_count(text, "!")) %>%
+  filter(language == "english")
+
+ggplot(clean_fakes[clean_fakes$excl_text<50,], aes(x=excl_title, y=excl_text)) + geom_point(size=2, shape=23) + scale_color_brewer(palette="Dark2")
+
+```
+
+
+
+```{r , message=FALSE, warning=FALSE}
+
+col.factors <- c("language", "site_url")
+
+clean_fakes <- clean_fakes %>%
+  mutate_at(vars(language, site_url, country, type), funs(as.factor))
+
+head(clean_fakes, 10)
+clean_fakes %>% group_by(type) %>% count()
+
+```
+
+
+as you can see we have many kinds of news:
+
+Extreme Bias: Sources that traffic in political propaganda and gross distortions of fact.
+
+BS: Sources that traffic in rumors, innuendo, and unverified claims.
+
+Conspiracy Theory: Sources that are well-known promoters of kooky conspiracy theories.
+
+Fake News: Sources that fabricate stories out of whole cloth with the intent of pranking the public.
+
+Hate Group: Sources that actively promote racism, misogyny, homophobia, and other forms of discrimination.
+
+Junk Science: Sources that promote pseudoscience, metaphysics, naturalistic fallacies, and other scientifically dubious claims.
+
+State News: Sources in repressive states operating under government sanction.
+
+
+```{r , message=FALSE, warning=FALSE}
+
+bias = clean_fakes[clean_fakes$type=="bias",]    
+bs = clean_fakes[clean_fakes$type=="bs",]  
+conspiracy = clean_fakes[clean_fakes$type=="conspiracy",]  
+fake = clean_fakes[clean_fakes$type=="fake",]  
+hate = clean_fakes[clean_fakes$type=="hate",]  
+junksci = clean_fakes[clean_fakes$type=="junksci",]  
+state = clean_fakes[clean_fakes$type=="state",]  
+
+```
+
+
+## Types of fake news
+
+our main interest is if each part of news is overall true or false but first we take a look at how wide our data is.
+
+since computing sentiment for all the data takes a long time, you can comment the second line to get the analysis on all the data 
+
+```{r , message=FALSE, warning=FALSE}
+
+fake_subset = clean_fakes
+fake_subset = sample_n(clean_fakes,6000)
+
+sentiment_title <- get_nrc_sentiment(fake_subset$title)
+sentiment_thread <- get_nrc_sentiment(fake_subset$thread_title)
+sentiment_text <- get_nrc_sentiment(fake_subset$text)
+
+# Include them in data
+sentiments_all <- sentiment_text + sentiment_thread + sentiment_title
+fake_subset <- cbind(fake_subset, sentiments_all)
+
+# Remove some features
+fake_subset$main_img_url <- NULL # We will use this later
+fake_subset$title <- NULL
+fake_subset$text <- NULL
+fake_subset$thread_title <- NULL
+
+
+```
+
+We compute sentiment for words used in fake news for different categories. It'll show which sentiments are mostly the ones used to lie to people with.
+
+We compute the mean value for each sentiment by type and then draw a plot for it.
+
+```{r , message=FALSE, warning=FALSE}
+
+sentiment_df <- cbind(fake_subset['type'], sentiments_all)  %>% select(-c(positive, negative))
+
+med_sents <- sentiment_df %>% 
+  group_by(type) %>% 
+  summarise_all(funs(median)) %>% 
+  gather(key = sentiment, value = med_sentiment, -type) %>% 
+  mutate(sentiment = as.factor(sentiment))
+
+ggplot(med_sents, aes(type, med_sentiment, fill = sentiment)) + 
+  geom_bar(stat = "identity", position = "dodge") + ggtitle("Median Sentiment value for types of news")
+
+```
+
+Then We calculate the Sd value of each sentiment by type
+
+```{r , message=FALSE, warning=FALSE}
+
+sd_sent <- sentiment_df %>% 
+  group_by(type) %>% 
+  summarise_all(funs(sd)) %>% 
+  gather(key = sentiment, value = sd_sentiment, -type) %>% 
+  mutate(sentiment = as.factor(sentiment))
+
+ggplot(sd_sent, aes(type, sd_sentiment, fill = sentiment)) + 
+  geom_bar(stat = "identity", position = "dodge") + ggtitle("Sd Sentiment value for types of news")
+
+
+```
+
+
+Now we find the most used words for "bs" type of fake news and draw a wordcloud
+
+```{r , message=FALSE, warning=FALSE}
+
+words_in_bs_text <- clean_fakes[which(clean_fakes$type=="bs"),][5]
+clean_bs_text <- words_in_bs_text %>% unnest_tokens(word, text) %>% anti_join(stop_words)
+clean_bs_counts <- clean_bs_text %>% count(word, sort = TRUE)
+clean_bs_counts = clean_bs_counts[which(grepl('^[A-Za-z0-9]+$',clean_bs_counts$word)==T),] %>% arrange(-n)
+
+ggplot(data=head(clean_bs_counts,30), aes(x = reorder(word,n), y=n)) +
+  geom_bar(stat="identity", width=0.8, fill="steelblue")+ 
+  scale_fill_brewer(palette="blues") + coord_flip()
+
+wordcloud(words = clean_bs_counts$word, freq = clean_bs_counts$n, min.freq = 2,
+          max.words=200, random.order=FALSE, rot.per=0.35, colors=brewer.pal(8, "Dark2"))
+
+```
+
+We do the same thing for "bias" news
+
+```{r , message=FALSE, warning=FALSE}
+
+words_in_bias_text <- clean_fakes[which(fakes1$type=="bias"),][5]
+clean_bias_text <- words_in_bias_text %>% unnest_tokens(word, text) %>% anti_join(stop_words)
+clean_bias_counts <- clean_bias_text %>% count(word, sort = TRUE)
+clean_bias_counts = clean_bias_counts[which(grepl('^[A-Za-z0-9]+$',clean_bias_counts$word)==T),] %>% arrange(-n)
+
+ggplot(data=head(clean_bias_counts,30), aes(x = reorder(word,n), y=n)) +
+  geom_bar(stat="identity", width=0.8, fill="steelblue")+ 
+  scale_fill_brewer(palette="blues") + coord_flip()
+
+wordcloud(words = clean_bias_counts$word, freq = clean_bias_counts$n, min.freq = 2,
+          max.words=200, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+
+```
+
+And the same for "conspiracy" news
+
+```{r , message=FALSE, warning=FALSE}
+
+words_in_conspiracy_text <- clean_fakes[which(fakes1$type=="conspiracy"),][5]
+clean_conspiracy_text <- words_in_conspiracy_text %>% unnest_tokens(word, text) %>% anti_join(stop_words)
+clean_conspiracy_counts <- clean_conspiracy_text %>% count(word, sort = TRUE)
+clean_conspiracy_counts = clean_conspiracy_counts[which(grepl('^[A-Za-z0-9]+$',clean_conspiracy_counts$word)==T),] %>% arrange(-n)
+
+ggplot(data=head(clean_conspiracy_counts,30), aes(x = reorder(word,n), y=n)) +
+  geom_bar(stat="identity", width=0.8, fill="steelblue")+ 
+  scale_fill_brewer(palette="blues") + coord_flip()
+
+wordcloud(words = clean_conspiracy_counts$word, freq = clean_conspiracy_counts$n, min.freq = 2,
+          max.words=200, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+
+```
+
+Also for the "hate" type
+
+```{r , message=FALSE, warning=FALSE}
+
+words_in_hate_text <- clean_fakes[which(fakes1$type=="hate"),][5]
+clean_hate_text <- words_in_hate_text %>% unnest_tokens(word, text) %>% anti_join(stop_words)
+clean_hate_counts <- clean_hate_text %>% count(word, sort = TRUE)
+clean_hate_counts = clean_hate_counts[which(grepl('^[A-Za-z0-9]+$',clean_hate_counts$word)==T),] %>% arrange(-n)
+
+ggplot(data=head(clean_hate_counts,30), aes(x = reorder(word,n), y=n)) +
+  geom_bar(stat="identity", width=0.8, fill="steelblue")+ 
+  scale_fill_brewer(palette="blues") + coord_flip()
+
+wordcloud(words = clean_hate_counts$word, freq = clean_hate_counts$n, min.freq = 2,
+          max.words=200, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+
+```
+
+now we draw a plot for when and how much of each kind of data were published and crawled
+
+```{r , message=FALSE, warning=FALSE}
+
+tfake <- mutate(fakes, published = ymd_hms(published))
+qplot(x = published, data = tfake, fill = type, bins = 20)
+
+sfake <- mutate(fakes, crawled = ymd_hms(crawled))
+qplot(x = crawled, data = sfake, fill = type, bins = 20)
+
+```
+
+
+```{r , message=FALSE, warning=FALSE}
+
+check_most_fakes = clean_fakes %>% mutate(Grupa = 
+  ifelse(grepl("Trump", clean_fakes$title)==TRUE | grepl("Donald", clean_fakes$title)==TRUE,"Trump",
+  ifelse(grepl("Hillary", clean_fakes$title)==TRUE | grepl("Clinton", clean_fakes$title)==TRUE,"Clinton",
+  ifelse(grepl("Barack", clean_fakes$title)==TRUE | grepl("Obama", clean_fakes$title)==TRUE,"Obama",
+  ifelse(grepl("Vladimir", clean_fakes$title)==TRUE | grepl("Putin", clean_fakes$title)==TRUE,"Putin",
+  ifelse(grepl("Russia", clean_fakes$title)==TRUE,"Russia",0))))))
+
+filtered_check_most_fakes1 = check_most_fakes %>% 
+  filter(Grupa == 'Clinton' | Grupa == 'Trump' | Grupa == 'Obama' | Grupa == 'Putin' | Grupa == 'Russia') %>% 
+  group_by(type,Grupa) %>% 
+  count(Grupa) %>% 
+  filter(type!='bs')
+
+ggplot(filtered_check_most_fakes1, aes(x=reorder(type, n), y=n, fill = Grupa)) + 
+  geom_col() + 
+  facet_wrap(~Grupa, ncol = 2, scales = "free") + 
+  theme_light() + 
+  ylab("Number of posts") + 
+  xlab("Type of post") + 
+  coord_flip()
+```
+
+
+Now we filter the news with clinton and trump in them by type of lie
+
+```{r , message=FALSE, warning=FALSE}
+
+filtered_check_most_fakes2 = check_most_fakes %>% filter(Grupa == 'Clinton' | Grupa == 'Trump') %>% 
+  group_by(type,Grupa) %>% count(Grupa) %>% filter(type!='bs')
+
+ggplot(filtered_check_most_fakes2, aes(x=reorder(type, n), y=n, fill = Grupa)) + 
+  geom_col() + 
+  facet_wrap(~Grupa, ncol = 2, scales = "free") + 
+  theme_light() + 
+  ylab("Number of posts") + 
+  xlab("Type of post") + 
+  coord_flip()
+```
+
+
+Then we compute number of likes distributed by type
+
+```{r , message=FALSE, warning=FALSE}
+
+filtered_check_most_fakes3 = check_most_fakes %>% select(Grupa, type, likes, comments) %>% filter(Grupa=="Trump" | Grupa=="Clinton") %>% group_by(Grupa, type) %>% 
+  summarise(Likes=sum(likes)) %>% filter(type!='bs')
+
+ggplot(filtered_check_most_fakes3, aes(reorder(type, Likes), Likes, fill = Grupa)) +
+  geom_col() + 
+  facet_wrap(~Grupa, ncol = 2, scales = "free") + 
+  xlab("Type of posts") + 
+  coord_flip()
+
+```
+
+
+
+Then we show most frequent words for Clinton by type (except bs).
+
+```{r , message=FALSE, warning=FALSE}
+
+clinton_words = check_most_fakes %>% filter(Grupa=="Clinton") %>% select(type, title) 
+clinton_words = data_frame(type = clinton_words$type, text = clinton_words$title) %>% unnest_tokens(word, text) 
+clinton_words = clinton_words %>% count(type, word, sort = TRUE) %>% mutate(len=nchar(word)) %>% filter(len>4) 
+clinton_words$check = ifelse(grepl("hillary", clinton_words$word)==TRUE | grepl("clinton", clinton_words$word)==TRUE,1,0)
+clinton_words = clinton_words %>% filter(check==0 & type!='bs') %>% group_by_(~ type) %>%
+  do(head(., n = 10))
+  
+ggplot(clinton_words, aes(x=reorder(word,n), y=n, fill = type)) + geom_col() + 
+  facet_wrap(~type,ncol = 3, scales = "free") + 
+  theme_light() +
+  ylab("Number of posts") + 
+  xlab("Word") + 
+  theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))
+
+```
+
+And most frequent words for Clinton in bs type.
+
+```{r , message=FALSE, warning=FALSE}
+
+clinton_bs = check_most_fakes %>% filter(Grupa=="Clinton") %>% select(type, title) 
+clinton_bs = data_frame(type = clinton_bs$type, text = clinton_bs$title) %>% unnest_tokens(word, text)
+clinton_bs = clinton_bs %>% count(type, word, sort = TRUE) %>% mutate(len=nchar(word)) %>% filter(len>4) 
+clinton_bs$check = ifelse(grepl("clinton", clinton_bs$word)==TRUE | grepl("hillary", clinton_bs$word)==TRUE,1,0)
+clinton_bs = clinton_bs %>% filter(check==0 & type=='bs') %>% head(15)
+
+ggplot(clinton_bs, aes(x=reorder(word,-n),y=n)) + geom_col() +
+  theme_light() +
+  ylab("Number of posts") + 
+  xlab("Word") + 
+  theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))
+
+```
+
+Next we show most frequent words for Trump by type (except bs).
+
+```{r , message=FALSE, warning=FALSE}
+
+trump_words = check_most_fakes %>% filter(Grupa=="Trump") %>% select(type, title) 
+trump_words = data_frame(type = trump_words$type, text = trump_words$title) %>% unnest_tokens(word, text) 
+trump_words = trump_words %>% count(type, word, sort = TRUE) %>% mutate(len=nchar(word)) %>% filter(len>4) 
+trump_words$check = ifelse(grepl("donald", trump_words$word)==TRUE | grepl("trump", trump_words$word)==TRUE,1,0)
+trump_words = trump_words %>% filter(check==0 & type!='bs') %>% group_by_(~ type) %>%
+  do(head(., n = 10))
+
+ggplot(trump_words, aes(x=reorder(word,n), y=n, fill = type)) + geom_col() + 
+  facet_wrap(~type,ncol = 3, scales = "free") + 
+  theme_light() +
+  ylab("Number of posts") + 
+  xlab("Word") +
+  theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))
+
+```
+
+And most frequent words for Trump in bs type.
+
+```{r , message=FALSE, warning=FALSE}
+
+trump_bs = check_most_fakes %>% filter(Grupa=="Trump") %>% select(type, title) 
+trump_bs = data_frame(type = trump_bs$type, text = trump_bs$title) %>% unnest_tokens(word, text)
+trump_bs = trump_bs %>% count(type, word, sort = TRUE) %>% mutate(len=nchar(word)) %>% filter(len>4) 
+trump_bs$check = ifelse(grepl("donald", trump_bs$word)==TRUE | grepl("trump", trump_bs$word)==TRUE,1,0)
+trump_bs = trump_bs %>% filter(check==0 & type=='bs') %>% head(15)
+
+ggplot(trump_bs, aes(x=reorder(word,-n),y=n)) + geom_col() +
+  theme_light() +
+  ylab("Number of posts") + 
+  xlab("Word") + 
+  theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))
+
+```
+
+
+The rpart programs build classification or regression models of a very general structure
+using a two stage procedure
+
+you can read more about it here: https://cran.r-project.org/web/packages/rpart/vignettes/longintro.pdf
+
+Tree-Based Models: Recursive partitioning is a fundamental tool in data mining. It helps us explore the stucture of a set of data, while developing easy to visualize decision rules for predicting a categorical (classification tree) or continuous (regression tree) outcome. here we create a simple CART model, conditional inference tree, and random forest.
+
+we want to create a model to guess the type of data.
+
+we use method set as class (for classification),  Information used as splitting criterion, Minimum loss which decreases complexity param, Competition by split and per surrogate for debugging and 10 cross-validation.
+
+```{r , message=FALSE, warning=FALSE}
+
+test_model <- rpart(formula = type ~ ord_in_thread + language + country + spam_score + replies_count + participants_count + likes + comments + shares,
+                    data = fakes1, method = "class", # Classification
+                    parms = list(split = "information"), 
+                    control = rpart.control(cp = 0.01, maxcompete = 3, maxsurrogate = 3, 
+                                            xval = 20, maxdepth = 4)) 
+plotcp(test_model)
+
+rpart.plot(test_model, main = "Decision Tree", box.palette = list("Gy", "Gn", "Bu", "Bn", "Or", "Rd", "Gy", "Pu"))
+summary(test_model)
+
+```
+
+
+
+## Conclusion
+
+There are some features which puts the fake news in one basket and real news in another but we don't have any measures to detect fake news 100% because there can be new methods created everyday but using the above methods and checking for patterns gets us to a fairly well estimations of fakeness
